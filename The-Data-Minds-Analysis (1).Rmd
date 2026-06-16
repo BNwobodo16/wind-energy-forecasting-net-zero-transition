@@ -1,0 +1,411 @@
+---
+title: Forecasting renewable energy generation from wind farms and the impact on CO2
+  emission reduction.
+author: "The-Data-Minds"
+date: "2026-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+
+## Introduction
+
+This study investigates the impact of wind energy generation on carbon intensity in the electricity sector. It further examines the extent to which wind energy can substitute fossil fuel-based generation and evaluates potential reductions in carbon intensity under different wind expansion scenarios.
+
+
+
+
+## 1. Load Libraries & Data
+
+```{r}
+library(tidyverse)
+library(Metrics)
+library(randomForest)
+library(xgboost)
+library(e1071)
+```
+
+
+
+```{r}
+df_fuel_ckan <- read_csv("df_fuel_ckan.csv")
+``` 
+Relevant libraries were loaded for data manipulation, statistical analysis, visualisation, and modelling. 
+
+
+### Dataset inspection
+```{r}
+head(df_fuel_ckan)
+```
+The output displays the first six rows of the dataset, showing actual values for variables such as wind, gas, coal, and carbon intensity. 
+
+
+```{r}
+str(df_fuel_ckan)
+```
+The dataset consists of over 300,000 observations with mostly numeric variables and a properly formatted datetime column, making it suitable for time-series analysis and modelling.
+
+
+
+```{r}
+summary(df_fuel_ckan)
+```
+The summary statistics reveal substantial variability across key variables in the dataset. Carbon intensity ranges from 19 to 644, with a mean of approximately 289, indicating significant fluctuations in emissions over time. Wind generation shows a wide range from 0 to 18,439, suggesting periods of both low and high wind availability. Fossil fuel sources, particularly coal and gas, also exhibit large variation, reflecting changes in energy demand and supply mix. Additionally, renewable sources such as solar and wind show increasing upper values, indicating their growing contribution to electricity generation. Overall, the data demonstrates a dynamic energy system with considerable variation across time. 
+
+ 
+
+
+##  2.  Feature Engineering
+
+```{r}
+df_fuel_ckan <- df_fuel_ckan %>%
+  mutate(
+    year = format(DATETIME, "%Y"),
+    month = format(DATETIME, "%m"),
+    hour = format(DATETIME, "%H")
+  )
+```
+
+Time-based features (year, month, hour) were extracted from the datetime variable to enable temporal analysis and improve model interpretability.
+
+
+
+
+
+##  3.  Exploratory Data Analysis (EDA)
+
+### Diagram 01:  Wind Distribution
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND)) +
+     geom_histogram(bins = 30, fill = "steelblue") +
+     theme_minimal() +
+     labs(title = "Distribution of Wind Energy Generation")
+```
+
+
+
+### Diagram 02: Distribution of Carbon Intensity
+
+```{r}
+ggplot(df_fuel_ckan, aes(x = CARBON_INTENSITY)) +
+     geom_histogram(bins = 30, fill = "steelblue") +
+     theme_minimal() +
+     labs(title = "Distribution of Carbon Intensity")
+```
+
+
+The histogram shows that carbon intensity varies widely, reflecting changes in the energy mix over time.
+
+
+     
+### Diagram 03: Carbon intensity over time
+
+```{r}
+ ggplot(df_fuel_ckan, aes(x = DATETIME, y = CARBON_INTENSITY)) +
+    geom_line(alpha = 0.3) +
+     theme_minimal() +
+     labs(title = "Carbon Intensity Over Time")
+```
+     
+EDA was conducted to examine the distribution of wind generation and carbon intensity, and to identify temporal trends. This provides initial insight into variability and potential patterns in the data.
+
+The exploratory analysis shows wide variation in both wind generation and carbon intensity, pointing to a potentially strong link between renewable output and emissions. This pattern provides a solid basis for deeper statistical testing and modelling to quantify the strength of that relationship. 
+
+
+
+
+## Diagram 04:
+
+### 4.   RQ1 To what extent does wind energy generation influence carbon intensity in the electricity sector?
+
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND, y = CARBON_INTENSITY)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm", color = "blue") +
+  theme_minimal()
+
+
+cor(df_fuel_ckan[, c("WIND", "SOLAR", "COAL", "GAS", "CARBON_INTENSITY")])
+```
+
+The analysis demonstrates a strong relationship between wind energy generation and carbon intensity. Correlation results show a substantial negative association (-0.705), indicating that increases in wind generation are linked to significant reductions in carbon intensity. This is further supported by scatterplots, which reveal a clear downward trend, and boxplots, which show progressively lower carbon intensity across higher wind categories.These findings shows that wind energy plays a vital role in carbon emission reduction,  with strong and consistent inverse relationship between wind generation and carbon intensity across all analytical approaches. 
+
+## Diagram 5&6:
+
+### 5.   RQ2 To what extent can electricity generated by wind farms replace coal- and gas-fired power generation over time?
+
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND, y = COAL)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm", color = "red") +
+  theme_minimal()
+
+
+ggplot(df_fuel_ckan, aes(x = WIND, y = GAS)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm", color = "blue") +
+  theme_minimal()
+
+cor(df_fuel_ckan[, c("WIND", "SOLAR", "COAL", "GAS", "CARBON_INTENSITY")])
+```
+
+
+The results provide clear evidence of a substitution effect: higher wind generation is linked to lower use of fossil fuel. The moderate negative correlation with coal (-o.496) and gas(-0.423) show that wind contributes to displacing these sources, especially coal. However, the strength of these relationships also makes it clear that wind alone cannot fully replace fossil fuel generation, underscoring the system's ongoing structural dependence on conventional energy sources. 
+
+ 
+  
+  
+  
+  
+  
+## 6.  Categorisation for Statistical Test
+
+```{r}
+df_fuel_ckan <- df_fuel_ckan %>%
+  mutate(
+    WIND_CAT = cut(WIND,
+                   breaks = quantile(WIND, probs = c(0, 0.33, 0.66, 1)),
+                   labels = c("Low", "Medium", "High"),
+                   include.lowest = TRUE),
+    CARBON_CAT = cut(CARBON_INTENSITY,
+                     breaks = quantile(CARBON_INTENSITY, probs = c(0, 0.33, 0.66, 1)),
+                     labels = c("Low", "Medium", "High"),
+                     include.lowest = TRUE)
+  )
+```
+
+ Continuous variables were categorised into quantiles to enable inferential statistical tests such as Chi-square and ANOVA.
+
+
+
+
+
+
+## 7.   Statistical Tests
+
+```{r}
+table_test <- table(df_fuel_ckan$WIND_CAT, df_fuel_ckan$CARBON_CAT)
+chisq.test(table_test)
+```
+The Chi-square test result (X² = 151493, p-value < 2.2e-16) indicates a   statistically significant association exist between wind generation levels and carbon intensity categories. Since the p-value is far below the 0.05 significance threshold, the null hypothesis of independence is rejected.  This confirms that wind energy levels have a significant influence on carbon intensity. 
+```{r}
+anova_model <- aov(CARBON_INTENSITY ~ WIND_CAT, data = df_fuel_ckan)
+summary(anova_model)
+```
+
+The ANOVA results show a clear and statistically significant difference in average carbon intensity across wind generation categories (F = 136450, p-value < 2e-16). Since the p-value is below the 0.05 threshold, the null hypothesis is rejected, indicating that wind generation levels, genuinely influence carbon intensity. 
+```{r}
+TukeyHSD(anova_model)
+```
+
+The Tukey test shows that all wind categories differ significantly, with carbon intensity decreasing consistently as wind generation increases. The largest reduction occurs between low and high wind levels, confirming a strong negative relationship.
+
+
+
+
+## 8.   Training & Testing Data Split (Time-Based)
+
+```{r}
+df_fuel_ckan <- df_fuel_ckan %>% arrange(DATETIME)
+
+train <- df_fuel_ckan %>% filter(DATETIME < "2020-01-01")
+test  <- df_fuel_ckan %>% filter(DATETIME >= "2020-01-01")
+```
+We split our dataset into training and testing using Date/time preserve the chronological order of the data. Unlike random splitting, this approach ensures that past data is used to predict future outcomes, which reflects real-world forecasting conditions. It also prevents data leakage, where information from the future could unintentionally influence the model. This is particularly important in energy data, where trends and patterns evolve over time.
+
+
+
+
+## 9.   Modelling
+
+### linear regression
+
+```{r}
+model_lm <- lm(CARBON_INTENSITY ~ WIND + SOLAR + COAL + GAS + HYDRO + GENERATION, data = train)
+pred_lm <- predict(model_lm, test)
+rmse(test$CARBON_INTENSITY, pred_lm)
+```
+
+The linear regression model yielded an RMSE of 44.19, indicating relatively high prediction error and limited ability to capture complex relationships in the data.
+
+
+### RandomForest
+
+```{r}
+set.seed(123)
+
+train_sample <- train %>% sample_n(30000)
+
+model_rf <- randomForest(
+  CARBON_INTENSITY ~ WIND + SOLAR + COAL + GAS + HYDRO + GENERATION,
+  data = train_sample,
+  ntree = 50
+)
+
+pred_rf <- predict(model_rf, test)
+
+round(Metrics::rmse(test$CARBON_INTENSITY, pred_rf), 5)
+```
+
+The RandomForest model achieved an Root, Mean Square Error (RMSE ) of 18.35, indicating a substantial improvement in predictive accuracy compared to the linear regression model. This lower error suggests that the model is better able to capture nonlinear relationships between energy generation sources and carbon intensity.  ARandom Forest combines multiple decision trees , enhancing robustness and reducing overfitting. However, while performance is improved, it remains less accurate than the XGBoost model. 
+
+  
+
+
+### XGBOOST Model
+
+```{r}
+x_train <- as.matrix(train[, c("WIND","SOLAR","COAL","GAS","HYDRO","GENERATION")])
+y_train <- train$CARBON_INTENSITY
+
+x_test <- as.matrix(test[, c("WIND","SOLAR","COAL","GAS","HYDRO","GENERATION")])
+y_test <- test$CARBON_INTENSITY
+
+model_xgb <- xgboost(
+  x = x_train,
+  y = y_train,
+  nrounds = 100,
+  objective = "reg:squarederror"
+)
+
+pred_xgb <- predict(model_xgb, x_test)
+
+rmse(y_test, pred_xgb)
+```
+
+The XGBoost model produced the lowest RMSE of 10.54, indicating the highest predictive accuracy among the models tested. This demonstrates its ability to effectively capture complex, nonlinear interactions between variables. As a gradient boosting algorithm, XGBoost iteratively improves model performance by correcting previous errors, resulting in superior predictive capability. This makes it the most suitable model for scenario analysis and forecasting in this study.
+
+
+
+
+## 10.  BOXPLOTS
+
+
+### Diagram 7: Coal boxplot
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND_CAT, y = COAL, fill = WIND_CAT)) +
+  geom_boxplot()
+```
+
+### Diagram 8: Carbon intensity
+
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND_CAT, y = CARBON_INTENSITY, fill = WIND_CAT)) +
+  geom_boxplot()
+```
+
+
+
+### Diagram 9: Gas boxplot
+```{r}
+ggplot(df_fuel_ckan, aes(x = WIND_CAT, y = GAS, fill = WIND_CAT)) +
+  geom_boxplot()
+```
+
+ Boxplots were used to compare distributions across wind categories, visually confirming reductions in carbon intensity, coal, and gas as wind increases
+
+
+
+
+## 11.  Scenario Analysis
+
+### Diagram 10 : 
+```{r}
+# Baseline prediction
+pred_baseline <- predict(model_xgb, x_test)
+
+# CPS scenario: +20% wind
+
+
+scenario_cps <- test
+scenario_cps$WIND <- scenario_cps$WIND * 1.2
+pred_cps <- predict(
+  model_xgb,
+  as.matrix(scenario_cps[, c("WIND","SOLAR","COAL","GAS","HYDRO","GENERATION")])
+)
+
+
+# STEPS scenario: +50% wind
+
+
+scenario_steps <- test
+scenario_steps$WIND <- scenario_steps$WIND * 1.5
+pred_steps <- predict(
+  model_xgb,
+  as.matrix(scenario_steps[, c("WIND","SOLAR","COAL","GAS","HYDRO","GENERATION")])
+)
+
+
+# NZE scenario: +100% wind
+
+scenario_nze <- test
+scenario_nze$WIND <- scenario_nze$WIND * 2
+pred_nze <- predict(
+  model_xgb,
+  as.matrix(scenario_nze[, c("WIND","SOLAR","COAL","GAS","HYDRO","GENERATION")])
+)
+
+
+# Summary table
+
+scenario_results <- data.frame(
+  Scenario = c("Baseline", "CPS (+20%)", "STEPS (+50%)", "NZE (+100%)"),
+  Mean_Carbon_Intensity = c(
+    mean(pred_baseline),
+    mean(pred_cps),
+    mean(pred_steps),
+    mean(pred_nze)
+  )
+)
+
+
+#Scenario Result 
+
+
+scenario_results$Scenario <- factor(
+  scenario_results$Scenario,
+  levels = c("Baseline", "CPS (+20%)", "STEPS (+50%)", "NZE (+100%)")
+)
+
+
+ggplot(scenario_results, aes(x = Scenario, y = Mean_Carbon_Intensity, fill = Scenario)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = round(Mean_Carbon_Intensity, 1)), vjust = -0.5, size = 4) +
+  theme_minimal() +
+  labs(
+    title = "Predicted Carbon Intensity under Wind Expansion Scenarios",
+    x = "Scenario",
+    y = "Mean Carbon Intensity"
+  ) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+
+
+## RQ3. How much CO₂ emissions could be avoided under different wind energy expansion scenarios by 2035?
+
+Scenario analysis shows that increasing wind generation consistently lowers carbon intensity. Using XGBoost model, carbon intensity drops from 155.1 at baseline to 152.2 under Current policy scenario (CPS, +20%), 149.2 under Stated policy scenario (STEPS, +50%), and 146.2 under Net-zero emission (NZE, +100%). This demonstrates that higher wind penetration can deliver meaningful C02 reduction by 2035, even though it cannot fully eliminate dependence on fossil fuels. 
+ 
+
+
+## 12.  Conclusion
+
+This study provides clear evidence that increased wind energy generation helps reduce carbon intensity. Key findings include: 
+
+. Strong inverse relationship:  Exploratory analysis, statistical tests and modelling consistently show that higher levels of wind generation are associated with lower emission intensity. Strong negative relationship between wind and carbon intensity, supported by correlation analysis, Chi-square, ANOVA and Tukey tests, all confirm that wind energy is an important driver in reducing carbon emissions. 
+
+. Partial substitute for fossil fuel: The findings also indicate that wind energy can partly displace fossil fuel generation, mainly coal and to a lesser extent, gas. This simply means that an increase in wind output not only cuts emissions directly but also reduces dependencies on high-carbon sources.  
+
+. Superior model performance: From the predictive analysis, the XGBoost machine learning model outperformed the linear regression model and the Random Forest model, with XGBoost achieving the highest accuracy of 10.53652. A sample of 30000 observations was used for Random Forest to reduce computational cost while preserving model performance. 
+
+. Scenario-based Insight: Scenario analysis shows that as wind generation increases; it leads to a consistent reduction in predicted carbon intensity.  
+
+
+Overall, the study reinforces the importance of expanding wind energy to support long-term decarbonisation and progress towards net-zero goals. 
