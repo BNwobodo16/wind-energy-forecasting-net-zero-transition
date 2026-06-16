@@ -27,7 +27,11 @@ This project investigates the relationship between wind energy generation and ca
 - Analysed renewable energy scenarios and their effect on emissions
 - Produced evidence-based insights supporting net-zero transition planning
 
-## Related Work
+## Business Impact
+
+This project demonstrates how renewable energy analytics and machine learning can be used to support evidence-based decision making in the energy sector. The findings provide insights into how increasing wind energy generation can contribute to reducing carbon intensity and supporting net-zero objectives.
+
+## Related Experience
 
 This project complements my work during the Scottish Government Innovation Challenge, where my team developed a framework for assessing optimal locations for AI data centres in Scotland while considering renewable energy availability, economic impact and environmental sustainability.
 
